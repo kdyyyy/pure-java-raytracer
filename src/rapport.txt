@@ -1,0 +1,5 @@
+En executor = 270ms
+pareil en pool le notre 
+newSingleThreadExecutor = 834ms
+
+

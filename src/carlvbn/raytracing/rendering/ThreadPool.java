@@ -30,18 +30,11 @@ public class ThreadPool {
 			t.start();
 			threads.add(t);
 		}
-		for (Thread t : threads) {
-			try {
-				t.join();
-			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-		}
+		
 	}
 
 	public void submit(Runnable r) throws InterruptedException {
-		queu.add(r);
+		queu.put(r);
 
 	}
 

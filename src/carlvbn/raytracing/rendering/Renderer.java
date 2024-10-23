@@ -13,14 +13,19 @@ import java.awt.image.DataBufferInt;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class Renderer {
 	private static final float GLOBAL_ILLUMINATION = 0.3F;
 	private static final float SKY_EMISSION = 0.5F;
 	private static final int MAX_REFLECTION_BOUNCES = 5;
 	private static final boolean SHOW_SKYBOX = true;
-	private static ThreadPool pool = new ThreadPool(100,8);
-
+	//private static ThreadPool pool = new ThreadPool(10000,8);
+	//private static ExecutorService exec = Executors.newFixedThreadPool(4);
+	private static ExecutorService exec = Executors.newSingleThreadExecutor();
+	//private static ExecutorService exec = new Executors.newThreadPerTaskExecutor();
 	public static float bloomIntensity = 0.5F;
 	public static int bloomRadius = 10;
 
@@ -46,7 +51,7 @@ public class Renderer {
 		return pixelBuffer;
 	}
 
-	public static PixelBuffer renderScene(Scene scene, int width, int height) {
+	public static PixelBuffer renderScene1(Scene scene, int width, int height) {
 		List<Thread> threads = new ArrayList<>();
 		float resolution = 0.1f;
 		PixelBuffer pixelBuffer = new PixelBuffer(width, height);
@@ -81,35 +86,6 @@ public class Renderer {
 
 	}
 
-	public static PixelBuffer renderScene3(Scene scene, int width, int height) {
-		List<Thread> threads = new ArrayList<>();
-		float resolution = 0.1f;
-		PixelBuffer pixelBuffer = new PixelBuffer(width, height);
-
-		for (int x = 0; x < width; x++) {
-			final int xx = x;
-
-			Runnable r = new Runnable() {
-				public void run() {
-					for (int y = 0; y < height; y++) {
-						float[] screenUV = getNormalizedScreenCoordinates(xx, y, width, height);
-
-						pixelBuffer.setPixel(xx, y, computePixelInfo(scene, screenUV[0], screenUV[1]));
-
-					}
-				}
-
-			};
-			try {
-				pool.submit(r);
-			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-			
-		}
-		return pixelBuffer;
-	}
 
 	/**
 	 * Fills a rectangle area of a BufferedImage with a specified color. This
@@ -159,7 +135,7 @@ public class Renderer {
 	 *                   Controls the number of rays traced. (1 = Every pixel is
 	 *                   ray-traced)
 	 */
-	public static void renderScene(Scene scene, Graphics gfx, int width, int height, float resolution) {
+	public static void renderScene0(Scene scene, Graphics gfx, int width, int height, float resolution) {
 		int blockSize = (int) (1 / resolution);
 		long start = System.currentTimeMillis();
 
@@ -177,12 +153,52 @@ public class Renderer {
 
 		System.out.println("Rendered in " + (System.currentTimeMillis() - start) + "ms");
 	}
+	
+	
+	
+	public static void renderScene(Scene scene, Graphics gfx, int width, int height, float resolution) {
+		
+		
+		//resolution = 0.1f;
+		int blockSize = (int) (1 / resolution);
+		long start = System.currentTimeMillis();
+		CountDownLatch latch = new CountDownLatch(width / blockSize);
+		BufferedImage image=new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+		for (int x = 0; x < width; x += blockSize) {
+			final int xx = x;
+			Runnable r = new Runnable() {
+				public void run() {
+					for (int y = 0; y < height; y += blockSize) {
+						float[] uv = getNormalizedScreenCoordinates(xx, y, width, height);
+						PixelData pixelData = computePixelInfo(scene, uv[0], uv[1]);
+						fillColorRect(image, xx,y,blockSize,blockSize, pixelData.getColor());
+					}
+					latch.countDown();
+					
+				}
+				
+			};
+			exec.submit(r);
+		}
+		try {
+			latch.await();
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+		gfx.drawImage(image, 0, 0, null);
+		System.out.println("Rendered in " + (System.currentTimeMillis() - start) + "ms");
+	}
+	
+	
+	
+	
+	
 
 	/** Same as the above but applies Post-Processing effects before drawing. */
 	public static void renderScenePostProcessed(Scene scene, Graphics gfx, int width, int height, float resolution) {
 		int bufferWidth = Math.round(width * resolution + 0.49F);
 		int bufferHeight = Math.round(height * resolution + 0.49F);
-		PixelBuffer pixelBuffer = renderScene(scene, bufferWidth, bufferHeight);
+		PixelBuffer pixelBuffer = renderSceneInit(scene, bufferWidth, bufferHeight);
 
 		PixelBuffer emissivePixels = pixelBuffer.clone(); // The width of this buffer has to remain constant to keep the
 															// blur factor the same for all sizes
